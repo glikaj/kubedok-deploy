@@ -12,12 +12,18 @@ or update Kubedok.
 On a fresh Debian or Ubuntu server:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/glikaj/kubedok-deploy/main/setup.sh -o setup.sh
-chmod +x setup.sh
+git clone https://github.com/glikaj/kubedok-deploy.git
+cd kubedok-deploy
 sudo KUBEDOK_HOST=kubedok.example.com \
      KUBEDOK_LETSENCRYPT_EMAIL=admin@example.com \
      ./setup.sh
 ```
+
+Clone rather than download a single file: `setup.sh` sources `scripts/common.sh`
+and installs the `compose/` files, so it cannot run on its own. The clone is a
+one-time bootstrap — everything afterwards runs from `/opt/kubedok`, and
+`update.sh` fetches new releases over HTTPS without needing git. You can delete
+the clone once the install finishes.
 
 Without a domain, omit both variables: it serves HTTP only, with a warning
 rather than a self-signed certificate.
@@ -48,11 +54,13 @@ Generate a registration token in the Kubedok UI, then on each Docker host you
 want to manage:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/glikaj/kubedok-deploy/main/scripts/agent-install.sh -o agent-install.sh
-curl -fsSL https://raw.githubusercontent.com/glikaj/kubedok-deploy/main/scripts/common.sh -o common.sh
-chmod +x agent-install.sh
-sudo ./agent-install.sh --token <token> --api-url https://kubedok.example.com
+git clone https://github.com/glikaj/kubedok-deploy.git
+cd kubedok-deploy
+sudo ./scripts/agent-install.sh --token <token> --api-url https://kubedok.example.com
 ```
+
+On the control-plane host the agent is already installed alongside everything
+else, so use `/opt/kubedok/current/scripts/agent-install.sh` there instead.
 
 Agents update independently of the control plane, so updating Kubedok does
 not restart workloads everywhere at once.

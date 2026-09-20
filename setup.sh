@@ -6,9 +6,12 @@
 # existing install is safe: it never regenerates secrets, never touches the
 # database volume, and never overwrites configuration you have edited.
 #
-#   curl -fsSL https://raw.githubusercontent.com/glikaj/kubedok-deploy/main/setup.sh -o setup.sh
-#   chmod +x setup.sh
+#   git clone https://github.com/glikaj/kubedok-deploy.git
+#   cd kubedok-deploy
 #   sudo KUBEDOK_HOST=kubedok.example.com KUBEDOK_TLS=auto ./setup.sh
+#
+# Clone rather than download: this script sources scripts/common.sh and
+# installs the compose/ files, so it cannot run as a standalone file.
 #
 # Configuration (environment variables):
 #   KUBEDOK_HOST                 DNS name this install is served on. Required for TLS.
@@ -31,7 +34,20 @@ elif [ -f "${SCRIPT_DIR}/common.sh" ]; then
   # shellcheck source=scripts/common.sh
   . "${SCRIPT_DIR}/common.sh"
 else
-  echo "Cannot find scripts/common.sh next to setup.sh" >&2
+  # setup.sh cannot bootstrap itself: it needs scripts/ and compose/ from this
+  # repository. Downloading this one file is the most likely way to get here,
+  # so say exactly what to do instead of naming a missing path.
+  cat >&2 <<'HINT'
+setup.sh cannot run on its own — it needs the scripts/ and compose/
+directories that live beside it in the repository.
+
+Clone the repository and run it from there:
+
+  git clone https://github.com/glikaj/kubedok-deploy.git
+  cd kubedok-deploy
+  sudo ./setup.sh
+
+HINT
   exit 1
 fi
 

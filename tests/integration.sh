@@ -101,6 +101,13 @@ cp "${DEPLOY_DIR}"/scripts/*.sh  "${SERVE_DIR}/scripts/"
 cp "${DEPLOY_DIR}"/setup.sh "${DEPLOY_DIR}"/update.sh "${SERVE_DIR}/"
 cp "${DEPLOY_DIR}/releases/release.schema.json" "${SERVE_DIR}/releases/"
 chmod +x "${SERVE_DIR}"/*.sh "${SERVE_DIR}"/scripts/*.sh
+# A bare mirror of this repository, so TEST 0 can exercise a real `git clone`
+# rather than a file copy.
+REPO_MIRROR="${WORK}/repo-mirror.git"
+git init -q --bare "${REPO_MIRROR}"
+git -C "${DEPLOY_DIR}" push -q "file://${REPO_MIRROR}" HEAD:refs/heads/main 2>/dev/null \
+  || abort "could not mirror the repository for the clone test"
+
 info "workspace ${WORK}"
 
 # ── Registry with two synthetic releases ─────────────────────────────────────
@@ -195,7 +202,7 @@ docker run -d --name "${RUNNER}" \
 # compose plugin binary is fetched directly.
 inrun "apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
   --no-install-recommends ca-certificates curl openssl jq util-linux iproute2 \
-  netcat-openbsd docker.io > /tmp/apt.log 2>&1" \
+  netcat-openbsd git docker.io > /tmp/apt.log 2>&1" \
   || { docker exec "${RUNNER}" tail -20 /tmp/apt.log 2>/dev/null | sed 's/^/      /'; abort 'could not install tools in the runner'; }
 
 inrun 'set -e
@@ -216,6 +223,61 @@ info "runner ready ($(inrun 'docker compose version --short' 2>/dev/null | tr -d
 docker network create kubedok-postgres >/dev/null 2>&1 || true
 docker network create kubedok-proxy    >/dev/null 2>&1 || true
 docker network connect kubedok-proxy "${RUNNER}" >/dev/null 2>&1 || true
+
+# ═══════════════════════════════════════════════════════════════════════════
+step 'TEST 0 — the documented install flow'
+
+# This suite used to copy every file into place and then run setup.sh, which
+# proved the installer worked but never proved the INSTRUCTIONS did. The
+# documented flow was "download setup.sh and run it", which cannot work:
+# setup.sh sources scripts/common.sh. Test the instructions, not just the code.
+
+inrun "mkdir -p ${WORK}/solo && cp ${SERVE_DIR}/setup.sh ${WORK}/solo/setup.sh && chmod +x ${WORK}/solo/setup.sh"
+solo_out="$(inrun "cd ${WORK}/solo && ./setup.sh 2>&1 || true")"
+
+if grep -q 'git clone' <<<"${solo_out}"; then
+  pass 'a lone setup.sh explains that the repository must be cloned'
+else
+  fails 'a lone setup.sh does not tell the user to clone'
+  printf '%s\n' "${solo_out}" | head -4 | sed 's/^/      /'
+fi
+
+if inrun "cd ${WORK}/solo && ./setup.sh >/dev/null 2>&1"; then
+  fails 'a lone setup.sh exited 0 — it must refuse to run'
+else
+  pass 'a lone setup.sh exits non-zero'
+fi
+
+# A real clone, which is what the documentation now tells people to do.
+inrun "rm -rf ${WORK}/clone && git clone -q file://${REPO_MIRROR} ${WORK}/clone" \
+  && pass 'git clone succeeds' \
+  || fails 'git clone failed'
+
+for f in setup.sh update.sh scripts/common.sh compose/server.yml compose/postgres.yml; do
+  if inrun "test -f ${WORK}/clone/${f}"; then
+    pass "clone contains ${f}"
+  else
+    fails "clone is missing ${f}"
+  fi
+done
+
+# Prove setup.sh in a clone gets past bootstrap and into common.sh's own code:
+# an unreachable release URL must fail at manifest download, not at sourcing.
+if ! inrun "test -x ${WORK}/clone/setup.sh"; then
+  fails 'no clone to test the bootstrap against'
+else
+  boot_out="$(inrun "cd ${WORK}/clone && KUBEDOK_SKIP_DEPS=true KUBEDOK_TLS=off \
+    KUBEDOK_RELEASE_BASE_URL=file:///nonexistent-on-purpose \
+    KUBEDOK_ROOT=${WORK}/bootcheck ./setup.sh 2>&1 || true")"
+  if grep -q 'git clone' <<<"${boot_out}"; then
+    fails 'setup.sh from a clone still cannot find common.sh'
+  elif grep -qiE 'could not download|Kubedok installer' <<<"${boot_out}"; then
+    pass 'setup.sh from a clone gets past the bootstrap guard'
+  else
+    fails 'setup.sh from a clone produced unrecognised output'
+    printf '%s\n' "${boot_out}" | head -4 | sed 's/^/      /'
+  fi
+fi
 
 # ═══════════════════════════════════════════════════════════════════════════
 step 'TEST 1 — fresh install (setup.sh)'

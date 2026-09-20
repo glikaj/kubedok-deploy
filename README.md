@@ -12,8 +12,8 @@ or update Kubedok.
 On a fresh Debian or Ubuntu server:
 
 ```bash
-git clone https://github.com/glikaj/kubedok-deploy.git
-cd kubedok-deploy
+git clone https://github.com/glikaj/kubedok-deploy.git kubedok
+cd kubedok
 sudo KUBEDOK_HOST=kubedok.example.com \
      KUBEDOK_LETSENCRYPT_EMAIL=admin@example.com \
      ./setup.sh
@@ -54,8 +54,8 @@ Generate a registration token in the Kubedok UI, then on each Docker host you
 want to manage:
 
 ```bash
-git clone https://github.com/glikaj/kubedok-deploy.git
-cd kubedok-deploy
+git clone https://github.com/glikaj/kubedok-deploy.git kubedok
+cd kubedok
 sudo ./scripts/agent-install.sh --token <token> --api-url https://kubedok.example.com
 ```
 

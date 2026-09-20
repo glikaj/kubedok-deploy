@@ -6,8 +6,8 @@
 # existing install is safe: it never regenerates secrets, never touches the
 # database volume, and never overwrites configuration you have edited.
 #
-#   git clone https://github.com/glikaj/kubedok-deploy.git
-#   cd kubedok-deploy
+#   git clone https://github.com/glikaj/kubedok-deploy.git kubedok
+#   cd kubedok
 #   sudo KUBEDOK_HOST=kubedok.example.com KUBEDOK_TLS=auto ./setup.sh
 #
 # Clone rather than download: this script sources scripts/common.sh and
@@ -43,8 +43,8 @@ directories that live beside it in the repository.
 
 Clone the repository and run it from there:
 
-  git clone https://github.com/glikaj/kubedok-deploy.git
-  cd kubedok-deploy
+  git clone https://github.com/glikaj/kubedok-deploy.git kubedok
+  cd kubedok
   sudo ./setup.sh
 
 HINT

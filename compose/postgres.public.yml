@@ -1,0 +1,12 @@
+# Overlay applied only when KUBEDOK_PUBLIC_POSTGRES=true.
+#
+# Publishes PostgreSQL for debugging. Bound to 127.0.0.1 by default so an
+# accidental `true` does not put the database on the public internet; set
+# KUBEDOK_POSTGRES_BIND=0.0.0.0 to override deliberately.
+
+name: kubedok-postgres
+
+services:
+  postgres:
+    ports:
+      - "${KUBEDOK_POSTGRES_BIND:-127.0.0.1}:${KUBEDOK_POSTGRES_PORT:-5432}:5432"

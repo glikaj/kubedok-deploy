@@ -1,0 +1,63 @@
+# Compose project: kubedok-server
+#
+# The NestJS API. Sits on both private networks: `kubedok-postgres` to reach
+# the database, `kubedok-proxy` to be reached by nginx. Publishes no ports —
+# port 3000 is only reachable from inside kubedok-proxy.
+#
+# There is no depends_on here: PostgreSQL lives in a different Compose project,
+# so ordering is enforced by setup.sh/update.sh and, defensively, by the
+# container's own readiness wait.
+
+name: kubedok-server
+
+services:
+  server:
+    image: ${KUBEDOK_IMAGE_SERVER:?KUBEDOK_IMAGE_SERVER is required}
+    container_name: kubedok-server
+    environment:
+      POSTGRES_HOST: ${KUBEDOK_POSTGRES_HOST:-kubedok-postgres}
+      POSTGRES_PORT: "5432"
+      POSTGRES_USER: ${KUBEDOK_POSTGRES_USER:-kubedok}
+      POSTGRES_DB: ${KUBEDOK_POSTGRES_DB:-kubedok}
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres-password
+      JWT_SECRET_FILE: /run/secrets/jwt-secret
+      REGISTRY_ENCRYPTION_KEY_FILE: /run/secrets/registry-encryption-key
+      PORT: "3000"
+      JWT_EXPIRES_IN: ${KUBEDOK_JWT_EXPIRES_IN:-15m}
+      CORS_ORIGIN: ${KUBEDOK_CORS_ORIGIN:-*}
+      TRUST_PROXY: ${KUBEDOK_TRUST_PROXY:-1}
+      LOG_LEVEL: ${KUBEDOK_LOG_LEVEL:-log}
+      KUBEDOK_RELEASE_VERSION: ${KUBEDOK_RELEASE_VERSION:-dev}
+      KUBEDOK_GIT_REVISION: ${KUBEDOK_GIT_REVISION:-}
+      KUBEDOK_MINIMUM_AGENT_VERSION: ${KUBEDOK_MINIMUM_AGENT_VERSION:-0.0.0}
+    secrets:
+      - postgres-password
+      - jwt-secret
+      - registry-encryption-key
+    networks:
+      - kubedok-postgres
+      - kubedok-proxy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:3000/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+    stop_grace_period: 30s
+    restart: unless-stopped
+
+secrets:
+  postgres-password:
+    file: ${KUBEDOK_SECRETS_DIR:?KUBEDOK_SECRETS_DIR is required}/postgres-password
+  jwt-secret:
+    file: ${KUBEDOK_SECRETS_DIR:?KUBEDOK_SECRETS_DIR is required}/jwt-secret
+  registry-encryption-key:
+    file: ${KUBEDOK_SECRETS_DIR:?KUBEDOK_SECRETS_DIR is required}/registry-encryption-key
+
+networks:
+  kubedok-postgres:
+    external: true
+    name: kubedok-postgres
+  kubedok-proxy:
+    external: true
+    name: kubedok-proxy

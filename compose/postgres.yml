@@ -1,0 +1,50 @@
+# Compose project: kubedok-postgres
+#
+# PostgreSQL only. Reachable exclusively over the private `kubedok-postgres`
+# network, which carries nothing but this container and the server.
+#
+# Port 5432 is NOT published by default. To expose it for debugging, set
+# KUBEDOK_PUBLIC_POSTGRES=true, which makes the scripts overlay
+# postgres.public.yml.
+
+name: kubedok-postgres
+
+services:
+  postgres:
+    image: ${KUBEDOK_IMAGE_POSTGRES:?KUBEDOK_IMAGE_POSTGRES is required}
+    container_name: kubedok-postgres
+    environment:
+      POSTGRES_USER: ${KUBEDOK_POSTGRES_USER:-kubedok}
+      POSTGRES_DB: ${KUBEDOK_POSTGRES_DB:-kubedok}
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres-password
+    secrets:
+      - postgres-password
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - kubedok-postgres
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - pg_isready -U "${KUBEDOK_POSTGRES_USER:-kubedok}" -d "${KUBEDOK_POSTGRES_DB:-kubedok}" -h 127.0.0.1
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 30s
+    stop_grace_period: 1m
+    restart: unless-stopped
+
+secrets:
+  postgres-password:
+    file: ${KUBEDOK_SECRETS_DIR:?KUBEDOK_SECRETS_DIR is required}/postgres-password
+
+volumes:
+  postgres_data:
+    # Pinned so the name never depends on the Compose project prefix — the
+    # backup and restore scripts address this volume directly.
+    name: kubedok_postgres_data
+
+networks:
+  kubedok-postgres:
+    external: true
+    name: kubedok-postgres

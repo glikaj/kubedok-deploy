@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/glikaj/kubedok-deploy/releases/release.schema.json",
+  "title": "Kubedok release manifest",
+  "description": "Immutable description of one Kubedok suite release. Published by CI only after every image in `images` has been pushed successfully.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "release",
+    "publishedAt",
+    "images",
+    "postgresMajor",
+    "minimumAgentVersion",
+    "minimumUpgradeFrom"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "description": "Version of this manifest format. setup.sh/update.sh refuse manifests they do not understand.",
+      "type": "integer",
+      "const": 1
+    },
+    "release": {
+      "description": "Suite release version. All components ship under this one version.",
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+    },
+    "publishedAt": {
+      "description": "UTC timestamp the manifest was published.",
+      "type": "string",
+      "format": "date-time"
+    },
+    "gitRevision": {
+      "description": "Commit the images were built from.",
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "images": {
+      "description": "Immutable digest references. Never tags — a tag can be repointed, a digest cannot.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["server", "nginx", "postgres", "agent"],
+      "properties": {
+        "server": { "$ref": "#/$defs/digestRef" },
+        "nginx": { "$ref": "#/$defs/digestRef" },
+        "postgres": { "$ref": "#/$defs/digestRef" },
+        "agent": { "$ref": "#/$defs/digestRef" }
+      }
+    },
+    "postgresMajor": {
+      "description": "PostgreSQL major version this release expects. A change here is a major-version upgrade and is never performed by update.sh.",
+      "type": "integer",
+      "minimum": 13
+    },
+    "minimumAgentVersion": {
+      "description": "Oldest agent version this server release still speaks to. Agents below this must be updated with agent-update.sh.",
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+    },
+    "minimumUpgradeFrom": {
+      "description": "Oldest installed release that may update directly to this one. Older installs must step through an intermediate release.",
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+    },
+    "notes": {
+      "description": "Human-readable release notes URL or short summary.",
+      "type": "string"
+    }
+  },
+  "$defs": {
+    "digestRef": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9._/-]*@sha256:[0-9a-f]{64}$"
+    }
+  }
+}

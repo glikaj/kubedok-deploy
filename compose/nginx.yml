@@ -1,0 +1,41 @@
+# Compose project: kubedok-proxy
+#
+# The only component that publishes ports to the host. Sits on the
+# `kubedok-proxy` network with the server; it has no route to PostgreSQL.
+#
+# Certificates are mounted read-only. nginx never issues or renews them —
+# that is the ACME client's job (see cert-renew.sh).
+
+name: kubedok-proxy
+
+services:
+  nginx:
+    image: ${KUBEDOK_IMAGE_NGINX:?KUBEDOK_IMAGE_NGINX is required}
+    container_name: kubedok-nginx
+    environment:
+      KUBEDOK_SERVER_HOST: ${KUBEDOK_SERVER_CONTAINER:-kubedok-server}
+      KUBEDOK_SERVER_PORT: "3000"
+      KUBEDOK_SERVER_NAME: ${KUBEDOK_HOST:-_}
+      KUBEDOK_TLS_ENABLED: ${KUBEDOK_TLS_ENABLED:-false}
+      KUBEDOK_CLIENT_MAX_BODY_SIZE: ${KUBEDOK_CLIENT_MAX_BODY_SIZE:-100m}
+    ports:
+      - "${KUBEDOK_HTTP_BIND:-0.0.0.0}:${KUBEDOK_HTTP_PORT:-80}:80"
+      - "${KUBEDOK_HTTPS_BIND:-0.0.0.0}:${KUBEDOK_HTTPS_PORT:-443}:443"
+    volumes:
+      - ${KUBEDOK_TLS_DIR:?KUBEDOK_TLS_DIR is required}/letsencrypt:/etc/letsencrypt:ro
+      - ${KUBEDOK_TLS_DIR:?KUBEDOK_TLS_DIR is required}/webroot:/var/www/certbot
+    networks:
+      - kubedok-proxy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "--spider", "http://127.0.0.1/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    stop_grace_period: 30s
+    restart: unless-stopped
+
+networks:
+  kubedok-proxy:
+    external: true
+    name: kubedok-proxy

@@ -1,0 +1,23 @@
+{
+  "MD013": {
+    "tables": false,
+    "code_blocks": false
+  },
+  "table-column-count": false,
+  "table-column-style": false,
+  "line-length": false,
+  "fenced-code-language": false,
+  "no-inline-html": false,
+  "no-hard-tabs": false,
+  "no-trailing-punctuation": false,
+  "no-duplicate-header": false,
+  "no-duplicate-heading": false,
+  "no-emphasis-as-heading": false,
+  "blanks-around-lists": false,
+  "blanks-around-headers": false,
+  "blanks-around-headings": false,
+  "first-line-h1": false,
+  "blanks-around-fences": false,
+  "single-title": false,
+  "ol-prefix": false
+}

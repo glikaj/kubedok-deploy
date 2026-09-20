@@ -1,0 +1,91 @@
+name: Lint
+
+# These scripts run as root on other people's servers, so the bar is that
+# every one of them is shellcheck-clean and every manifest matches the schema
+# it claims to.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  shellcheck:
+    name: ShellCheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run ShellCheck
+        run: |
+          set -euo pipefail
+          # --source-path=SCRIPTDIR is required: without it shellcheck
+          # resolves `source=common.sh` against the working directory and
+          # then reports every helper as undefined.
+          docker run --rm -v "${PWD}:/mnt" koalaman/shellcheck:stable \
+            -x --source-path=SCRIPTDIR -S warning -f gcc \
+            setup.sh update.sh tests/integration.sh scripts/*.sh
+
+  compose:
+    name: Compose files
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate every Compose project
+        run: |
+          set -euo pipefail
+          # Values the files require but that only exist on a real install.
+          cat > /tmp/test.env <<'ENV'
+          KUBEDOK_SECRETS_DIR=/tmp/secrets
+          KUBEDOK_TLS_DIR=/tmp/tls
+          KUBEDOK_IMAGE_POSTGRES=example/postgres@sha256:0000000000000000000000000000000000000000000000000000000000000000
+          KUBEDOK_IMAGE_SERVER=example/server@sha256:0000000000000000000000000000000000000000000000000000000000000000
+          KUBEDOK_IMAGE_NGINX=example/nginx@sha256:0000000000000000000000000000000000000000000000000000000000000000
+          KUBEDOK_IMAGE_AGENT=example/agent@sha256:0000000000000000000000000000000000000000000000000000000000000000
+          KUBEDOK_API_URL=http://127.0.0.1
+          ENV
+          mkdir -p /tmp/secrets /tmp/tls/letsencrypt /tmp/tls/webroot
+          for f in postgres server nginx agent; do
+            echo "checking compose/${f}.yml"
+            docker compose --env-file /tmp/test.env -f "compose/${f}.yml" config -q
+          done
+          echo "checking the postgres public overlay"
+          docker compose --env-file /tmp/test.env \
+            -f compose/postgres.yml -f compose/postgres.public.yml config -q
+
+  manifests:
+    name: Release manifests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate every manifest against the schema
+        run: |
+          set -euo pipefail
+          # --spec=draft2020 is required: ajv defaults to draft-07 and the
+          # schema declares 2020-12, which otherwise fails to even load.
+          shopt -s nullglob
+          files=(releases/*.json)
+          for f in "${files[@]}"; do
+            [ "$(basename "${f}")" = "release.schema.json" ] && continue
+            echo "validating ${f}"
+            npx --yes -p ajv-cli@5 -p ajv-formats@3 ajv validate \
+              --spec=draft2020 -c ajv-formats \
+              -s releases/release.schema.json -d "${f}" --strict=false
+          done
+
+      - name: The stable channel must point at a manifest that exists
+        run: |
+          set -euo pipefail
+          release="$(jq -r '.release // empty' channels/stable.json)"
+          manifest="$(jq -r '.manifest // empty' channels/stable.json)"
+          if [ -z "${release}" ]; then
+            echo "stable has no release yet — nothing to check"
+            exit 0
+          fi
+          [ -f "${manifest}" ] \
+            || { echo "::error::channels/stable.json points at missing ${manifest}"; exit 1; }
+          [ "$(jq -r .release "${manifest}")" = "${release}" ] \
+            || { echo "::error::${manifest} does not declare release ${release}"; exit 1; }
+          echo "stable -> ${release} (${manifest})"

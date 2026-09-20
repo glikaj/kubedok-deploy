@@ -1,0 +1,37 @@
+# Compose project: kubedok-agent
+#
+# Optional on the control-plane host, and the same file every managed host
+# uses. Deliberately not on the private networks: network_mode host is
+# required so wg-quick can create the WireGuard interface in the host netns
+# where workload containers can reach it.
+#
+# Because of network_mode: host, the `kubedok-nginx` container name does not
+# resolve here. KUBEDOK_API_URL must be a host-reachable URL.
+
+name: kubedok-agent
+
+services:
+  agent:
+    image: ${KUBEDOK_IMAGE_AGENT:?KUBEDOK_IMAGE_AGENT is required}
+    container_name: kubedok-agent
+    privileged: true
+    network_mode: host
+    environment:
+      KUBEDOK_API_URL: ${KUBEDOK_API_URL:?KUBEDOK_API_URL is required}
+      KUBEDOK_REGISTRATION_TOKEN: ${KUBEDOK_REGISTRATION_TOKEN:-}
+      KUBEDOK_HOST_ADDRESS: ${KUBEDOK_HOST_ADDRESS:-}
+      KUBEDOK_STATE_FILE: /var/lib/kubedok-agent/agent-state.json
+      KUBEDOK_SYNC_INTERVAL_SECS: ${KUBEDOK_SYNC_INTERVAL_SECS:-15}
+      RUST_LOG: ${KUBEDOK_AGENT_LOG:-kubedok_agent=info}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - agent_state:/var/lib/kubedok-agent
+      - agent_wg:/etc/wireguard
+    stop_grace_period: 30s
+    restart: unless-stopped
+
+volumes:
+  agent_state:
+    name: kubedok_agent_state
+  agent_wg:
+    name: kubedok_agent_wg

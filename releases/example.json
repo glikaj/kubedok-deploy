@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "release": "1.2.3",
+  "publishedAt": "2026-01-15T10:30:00Z",
+  "gitRevision": "0000000000000000000000000000000000000000",
+  "images": {
+    "server": "approxx/kubedok-server@sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "nginx": "approxx/kubedok-nginx@sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "postgres": "approxx/kubedok-postgres@sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "agent": "approxx/kubedok-agent@sha256:0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "postgresMajor": 16,
+  "minimumAgentVersion": "1.0.0",
+  "minimumUpgradeFrom": "1.0.0",
+  "notes": "Example manifest. Not a real release — CI generates these at tag time."
+}

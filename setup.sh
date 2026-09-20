@@ -16,6 +16,7 @@
 # Configuration (environment variables):
 #   KUBEDOK_HOST                 DNS name this install is served on. Required for TLS.
 #   KUBEDOK_TLS                  off | on | auto          (default: auto)
+#   KUBEDOK_TLS_SKIP_DNS_CHECK   Proceed even if DNS points at a proxy/CDN.
 #   KUBEDOK_LETSENCRYPT_EMAIL    Contact address for the ACME account.
 #   KUBEDOK_ENABLE_AGENT         Install the agent on this host too. (default: false)
 #   KUBEDOK_RELEASE              Channel name or exact version. (default: stable)
@@ -166,8 +167,15 @@ resolve_tls() {
         || die "KUBEDOK_TLS=on requires KUBEDOK_HOST to be a DNS name you control."
       [ -n "${KUBEDOK_LETSENCRYPT_EMAIL:-}" ] \
         || die "KUBEDOK_TLS=on requires KUBEDOK_LETSENCRYPT_EMAIL for the ACME account."
-      dns_points_here "${KUBEDOK_HOST}" \
-        || die "KUBEDOK_HOST=${KUBEDOK_HOST} does not resolve to this server. Point the DNS A/AAAA record here and re-run. Set KUBEDOK_TLS=off to continue without HTTPS."
+      if ! dns_points_here "${KUBEDOK_HOST}"; then
+        if [ "${KUBEDOK_TLS_SKIP_DNS_CHECK:-false}" = "true" ]; then
+          warn "DNS does not point here, but KUBEDOK_TLS_SKIP_DNS_CHECK=true — continuing."
+          [ -n "${DNS_CDN}" ] && warn "Traffic appears to route through ${DNS_CDN}; the ACME challenge must reach this host through it."
+        else
+          explain_dns_failure "${KUBEDOK_HOST}"
+          exit 1
+        fi
+      fi
       KUBEDOK_TLS_ENABLED=true
       ok "TLS enabled for ${KUBEDOK_HOST}"
       ;;
@@ -175,12 +183,12 @@ resolve_tls() {
       if [ -z "${KUBEDOK_HOST:-}" ]; then
         KUBEDOK_TLS_ENABLED=false
         warn "No KUBEDOK_HOST set — serving HTTP only. No self-signed certificate is created."
-      elif ! dns_points_here "${KUBEDOK_HOST}"; then
+      elif ! dns_points_here "${KUBEDOK_HOST}" \
+           && [ "${KUBEDOK_TLS_SKIP_DNS_CHECK:-false}" != "true" ]; then
         # A hostname was supplied, so silently downgrading would hide a DNS
         # mistake behind an insecure install.
-        die "KUBEDOK_HOST=${KUBEDOK_HOST} does not resolve to this server.
-    Point its DNS A/AAAA record at this host and re-run, or
-    set KUBEDOK_TLS=off to install without HTTPS on purpose."
+        explain_dns_failure "${KUBEDOK_HOST}"
+        exit 1
       elif [ -z "${KUBEDOK_LETSENCRYPT_EMAIL:-}" ]; then
         die "KUBEDOK_HOST resolves here but KUBEDOK_LETSENCRYPT_EMAIL is not set. Set it, or use KUBEDOK_TLS=off."
       else
@@ -197,29 +205,107 @@ resolve_tls() {
 }
 
 # True when the hostname resolves to an address this machine holds.
+#
+# Sets DNS_RESOLVED, DNS_LOCAL and DNS_CDN so the caller can explain the
+# failure instead of just asserting it. "It does not resolve here" is useless
+# advice to someone looking at a DNS record they just created correctly.
+DNS_RESOLVED=""
+DNS_LOCAL=""
+DNS_CDN=""
+
 dns_points_here() {
   local host="$1"
-  local resolved local_addrs addr
+  local addr
 
-  resolved="$(getent ahosts "${host}" 2>/dev/null | awk '{print $1}' | sort -u || true)"
-  [ -n "${resolved}" ] || { debug "${host} does not resolve at all"; return 1; }
+  DNS_CDN=""
+  DNS_RESOLVED="$(getent ahosts "${host}" 2>/dev/null | awk '{print $1}' | sort -u || true)"
+  if [ -z "${DNS_RESOLVED}" ]; then
+    debug "${host} does not resolve at all"
+    return 1
+  fi
 
-  local_addrs="$(ip -o addr show scope global 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | sort -u || true)"
-  # Behind NAT the public address is not on any local interface, so fall back
-  # to whatever the host believes its public address is.
+  DNS_LOCAL="$(ip -o addr show scope global 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | sort -u || true)"
+  # Behind NAT the public address is not on any local interface, so also ask
+  # what the outside world sees. Two providers, in case one is blocked.
   local public_addr
-  public_addr="$(curl -fsS --max-time 5 https://api.ipify.org 2>/dev/null || true)"
-  [ -n "${public_addr}" ] && local_addrs="${local_addrs}"$'\n'"${public_addr}"
+  public_addr="$(curl -fsS --max-time 5 https://api.ipify.org 2>/dev/null \
+    || curl -fsS --max-time 5 https://ifconfig.me/ip 2>/dev/null || true)"
+  [ -n "${public_addr}" ] && DNS_LOCAL="${DNS_LOCAL}"$'\n'"${public_addr}"
 
-  for addr in ${resolved}; do
-    if printf '%s\n' "${local_addrs}" | grep -qx "${addr}"; then
+  for addr in ${DNS_RESOLVED}; do
+    if printf '%s\n' "${DNS_LOCAL}" | grep -qx "${addr}"; then
       debug "${host} resolves to ${addr}, which is local"
       return 0
     fi
   done
 
-  debug "${host} resolves to [${resolved//$'\n'/ }] but none are local [${local_addrs//$'\n'/ }]"
+  # A proxied DNS record resolves to the CDN, never to the origin. That is the
+  # single most common reason this check fails on a record that is set right.
+  DNS_CDN="$(identify_cdn "${DNS_RESOLVED}")"
+
+  debug "${host} resolves to [${DNS_RESOLVED//$'\n'/ }] but none are local [${DNS_LOCAL//$'\n'/ }]"
   return 1
+}
+
+# Name the CDN behind a set of addresses, or print nothing.
+identify_cdn() {
+  local addrs="$1" a
+  for a in ${addrs}; do
+    case "${a}" in
+      104.1[6-9].*|104.2[0-7].*|172.6[4-7].*|172.7[01].*|162.158.*|162.159.*|\
+      173.245.4[89].*|103.21.24[4-7].*|103.22.20[0-3].*|103.31.[4-7].*|\
+      141.101.6[4-9].*|141.101.[7-9]*.*|108.162.*|190.93.24[0-3].*|\
+      188.114.9[6-9].*|197.234.24[0-3].*|198.41.12[89].*|131.0.7[2-5].*|\
+      2606:4700:*|2803:f800:*|2405:b500:*|2405:8100:*|2a06:98c0:*|2c0f:f248:*)
+        printf 'Cloudflare'; return 0 ;;
+      2600:9000:*|13.3[2-5].*|99.8[4-6].*|205.251.*)
+        printf 'CloudFront'; return 0 ;;
+      151.101.*|199.232.*)
+        printf 'Fastly'; return 0 ;;
+    esac
+  done
+  return 0
+}
+
+# Explain a failed DNS check with the actual data, not an assertion.
+explain_dns_failure() {
+  local host="$1"
+
+  err "KUBEDOK_HOST=${host} does not resolve to this server."
+  printf '\n'
+  printf '    %s resolves to:\n' "${host}"
+  printf '%s\n' "${DNS_RESOLVED}" | sed 's/^/      /'
+  printf '\n    this server'"'"'s addresses:\n'
+  if [ -n "${DNS_LOCAL}" ]; then
+    printf '%s\n' "${DNS_LOCAL}" | grep -v '^$' | sed 's/^/      /'
+  else
+    printf '      (could not determine — no `ip` command and no outbound access?)\n'
+  fi
+  printf '\n'
+
+  if [ -n "${DNS_CDN}" ]; then
+    printf '    Those are %s addresses: the DNS record is PROXIED.\n' "${DNS_CDN}"
+    printf '    The record is correct, it just points at %s rather than here.\n\n' "${DNS_CDN}"
+    printf '    Recommended: turn the proxy off for this record (grey cloud /\n'
+    printf '    "DNS only"), run setup.sh to obtain a real certificate, then turn\n'
+    printf '    the proxy back on with SSL mode "Full (strict)". The origin keeps\n'
+    printf '    a valid certificate and the edge can verify it.\n\n'
+    printf '    To proceed with the proxy left on, so the ACME challenge is\n'
+    printf '    forwarded through it:\n'
+    printf '      KUBEDOK_TLS_SKIP_DNS_CHECK=true ./setup.sh\n'
+    printf '    That usually works, but fails if the proxy blocks or rewrites\n'
+    printf '    /.well-known/acme-challenge/.\n\n'
+    printf '    Or serve HTTP only and let the edge terminate TLS:\n'
+    printf '      KUBEDOK_TLS=off ./setup.sh\n'
+    printf '    Only do that with SSL mode "Full", never "Flexible" — Flexible\n'
+    printf '    leaves the edge-to-origin leg unencrypted across the internet.\n\n'
+  else
+    printf '    Point the A/AAAA record at one of this server'"'"'s addresses and\n'
+    printf '    re-run, or install without HTTPS on purpose:\n'
+    printf '      KUBEDOK_TLS=off ./setup.sh\n\n'
+    printf '    If you just changed the record, DNS may still be cached; check\n'
+    printf '    with: dig +short %s\n\n' "${host}"
+  fi
 }
 
 # ── 5. Install directory ─────────────────────────────────────────────────────

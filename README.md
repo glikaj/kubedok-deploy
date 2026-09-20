@@ -34,6 +34,32 @@ networks, and obtains a Let's Encrypt certificate. It is idempotent — running
 it again never regenerates a secret, touches the database, or overwrites
 settings you have edited.
 
+### Behind Cloudflare or another CDN
+
+A proxied DNS record resolves to the CDN, not to your server, so `setup.sh`
+stops rather than enable TLS it cannot verify. It names the CDN when it
+detects one — the record is not wrong, it just points somewhere else.
+
+Set the record to **DNS only** (grey cloud), run `setup.sh`, then switch it
+back to **Proxied** with SSL mode **Full (strict)**. Afterwards, confirm
+renewals still reach the origin through the proxy:
+
+```bash
+sudo /opt/kubedok/current/scripts/cert-renew.sh --dry-run
+```
+
+That last step matters: certificates renew from a timer every 60 days, and a
+proxy that rewrites `/.well-known/acme-challenge/` breaks renewal silently
+until the certificate expires.
+
+To install without grey-clouding first, pass
+`KUBEDOK_TLS_SKIP_DNS_CHECK=true`. Never use Cloudflare's **Flexible** SSL
+mode — it leaves edge-to-origin traffic unencrypted across the internet.
+
+Full details, including how to use a Cloudflare Origin CA certificate
+instead, are in
+[infrastructure.md](https://github.com/glikaj/kubedok/blob/main/docs/infrastructure.md).
+
 ## Operate
 
 Everything installs under `/opt/kubedok`.

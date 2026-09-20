@@ -123,6 +123,7 @@ channels/
   stable.json               Points at the current stable release.
 tests/
   integration.sh            End-to-end test of all of the above.
+  cert-probe.sh             The ACME pre-flight in cert-renew.sh, against real nginx.
 ```
 
 ## Architecture
@@ -199,6 +200,19 @@ Two synthetic releases are pushed to a throwaway local registry so the
 manifests carry genuine digests, exactly like production, and they are served
 over `file://` so the test needs no network. It requires the four `:dev`
 images, which are built from the application repository.
+
+```bash
+./tests/cert-probe.sh
+```
+
+Covers the one thing the suite above cannot, because it installs with
+`KUBEDOK_TLS=off`: the pre-flight in `cert-renew.sh` that checks the ACME
+challenge path before certbot is called. It starts the real nginx image in
+its pre-issuance state and asserts that a correctly wired install passes,
+and that a broken webroot mount and an unreachable public route each fail
+with a message naming the right layer. Let's Encrypt is never contacted. Set
+`KUBEDOK_TEST_NGINX_IMAGE` to run it against a released image instead of
+`kubedok-nginx:dev`.
 
 ## Documentation
 

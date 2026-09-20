@@ -40,7 +40,7 @@ done
 
 require_root
 require_installed
-require_cmd docker
+require_cmd docker curl
 load_config
 
 LE_DIR="${KUBEDOK_TLS_DIR}/letsencrypt"
@@ -101,6 +101,21 @@ certbot_run() {
     "${CERTBOT_IMAGE}" "$@"
 }
 
+# HTTP status of a GET, or curl's own error when nothing answered at all
+# (DNS failure, refused connection, timeout). Never fails the caller.
+http_status() {
+  local url="$1"; shift
+  local errfile code
+  errfile="$(mktemp)"
+  code="$(curl -sS --max-time 15 -o /dev/null -w '%{http_code}' "$@" "${url}" 2>"${errfile}")" || true
+  if [ -z "${code}" ] || [ "${code}" = "000" ]; then
+    code="$(head -n1 "${errfile}" | sed 's/^curl: ([0-9]*) //')"
+    [ -n "${code}" ] || code="no response"
+  fi
+  rm -f "${errfile}"
+  printf '%s' "${code}"
+}
+
 reload_nginx() {
   if docker inspect kubedok-nginx >/dev/null 2>&1 \
     && [ "$(docker inspect -f '{{.State.Running}}' kubedok-nginx)" = "true" ]; then
@@ -124,19 +139,47 @@ case "${MODE}" in
 
     # The challenge path has to work before certbot is asked to use it,
     # otherwise the failure surfaces as an opaque ACME error.
+    #
+    # certbot --webroot writes each token to <webroot>/.well-known/acme-challenge/
+    # and nginx maps the request URI onto that same tree (`root`, not `alias`),
+    # so the probe has to sit at exactly that depth. A file at the top of the
+    # webroot gets a 404 and makes a perfectly good install look firewalled.
+    probe_dir="${WEBROOT}/.well-known/acme-challenge"
     probe="kubedok-acme-probe-$$"
-    printf 'ok' > "${WEBROOT}/${probe}"
-    probe_url="http://${KUBEDOK_HOST}/.well-known/acme-challenge/${probe}"
-    if ! curl -fsS --max-time 15 "${probe_url}" >/dev/null 2>&1; then
-      rm -f "${WEBROOT:?}/${probe}"
+    probe_path="/.well-known/acme-challenge/${probe}"
+    mkdir -p "${probe_dir}"
+    chmod 755 "${WEBROOT}/.well-known" "${probe_dir}"
+    printf 'ok' > "${probe_dir}/${probe}"
+    chmod 644 "${probe_dir}/${probe}"
+    trap 'rm -f "${probe_dir:?}/${probe:?}"' EXIT
+
+    # Two probes, so the failure names the right layer: nginx on this host
+    # first, then the public route Let's Encrypt will actually take.
+    local_url="$(local_base_url)${probe_path}"
+    status="$(http_status "${local_url}" -H "Host: ${KUBEDOK_HOST}")"
+    if [ "${status}" != "200" ]; then
+      die "nginx on this host is not serving the ACME challenge webroot.
+    Tried: ${local_url} (Host: ${KUBEDOK_HOST}) -> ${status}
+    Expected 200 for ${probe_dir}/${probe}.
+    Check that nginx is running (docker logs kubedok-nginx) and that
+    ${WEBROOT} is mounted at /var/www/certbot inside the container."
+    fi
+    ok "nginx serves the challenge webroot"
+
+    public_url="http://${KUBEDOK_HOST}${probe_path}"
+    status="$(http_status "${public_url}")"
+    if [ "${status}" != "200" ]; then
       die "The ACME challenge path is not reachable from the internet.
-    Tried: ${probe_url}
-    Check that port 80 is open in the firewall and any cloud security group,
-    that ${KUBEDOK_HOST} resolves to this server, and that nginx is running.
+    Tried: ${public_url} -> ${status}
+    nginx serves it locally, so the problem is on the way in. Check that
+    port 80 is open in the firewall and any cloud security group, that
+    ${KUBEDOK_HOST} resolves to this server, and that no proxy or CDN in
+    front rewrites /.well-known/acme-challenge/.
     Let's Encrypt requires port 80: https://letsencrypt.org/docs/allow-port-80/"
     fi
-    rm -f "${WEBROOT:?}/${probe}"
-    ok "Challenge path reachable"
+    rm -f "${probe_dir:?}/${probe}"
+    trap - EXIT
+    ok "Challenge path reachable from the internet"
 
     args=(certonly --webroot -w /var/www/certbot
           -d "${KUBEDOK_HOST}"

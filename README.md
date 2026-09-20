@@ -57,20 +57,6 @@ sudo ./agent-install.sh --token <token> --api-url https://kubedok.example.com
 Agents update independently of the control plane, so updating Kubedok does
 not restart workloads everywhere at once.
 
-## Migrating from the single-container image
-
-Installs running the old `kubedok-app` image (PostgreSQL, nginx, API, and UI
-in one container) move across with:
-
-```bash
-sudo /opt/kubedok/current/scripts/migrate-from-monolith.sh --dry-run
-sudo /opt/kubedok/current/scripts/migrate-from-monolith.sh
-```
-
-It preserves the existing `JWT_SECRET` and `REGISTRY_ENCRYPTION_KEY`, and
-leaves the old container and its volume untouched until the new stack is
-verified healthy. Any failure restarts the old container automatically.
-
 ## Layout
 
 ```text
@@ -95,7 +81,6 @@ scripts/
   agent-install.sh          Install the agent on any Docker host.
   agent-update.sh           Update one agent, independently.
   uninstall.sh              Remove containers. Keeps data unless --purge-data.
-  migrate-from-monolith.sh  Move an existing kubedok-app install here.
 releases/
   release.schema.json       The manifest contract.
   example.json              Documented example. Not a real release.
@@ -187,3 +172,9 @@ images, which are built from the application repository.
   — topology, environment variables, operations
 - [Release process](https://github.com/glikaj/kubedok/blob/main/docs/release-process.md)
   — versioning and the manifest contract
+
+## License
+
+[MIT](LICENSE). The deployment tooling in this repository is MIT-licensed;
+the Kubedok application it installs is distributed as container images under
+its own terms.

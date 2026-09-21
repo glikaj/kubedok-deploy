@@ -395,7 +395,7 @@ wait_for_http() {
   local url="$1" timeout="${2:-120}"
   local deadline=$(( SECONDS + timeout ))
 
-  while ! curl -fsS --max-time 5 -o /dev/null "${url}" 2>/dev/null; do
+  while ! local_curl -fsS --max-time 5 -o /dev/null "${url}" 2>/dev/null; do
     if (( SECONDS >= deadline )); then
       return 1
     fi
@@ -404,15 +404,40 @@ wait_for_http() {
   return 0
 }
 
-# Base URL for talking to the install from the host itself.
+# Talking to the install from the host itself.
 #
-# KUBEDOK_LOCAL_BASE_URL overrides it for the cases where the host loopback is
+# Once TLS is on, port 80 answers everything except the ACME path with a
+# redirect to https://<KUBEDOK_HOST>/, and the certificate is for that name,
+# not for 127.0.0.1. So the local URL carries the hostname, and local_curl()
+# pins it to loopback with --resolve and follows the redirect: the request
+# never leaves the machine, even when DNS points at a CDN, and the real
+# certificate still has to validate. Before the first certificate exists nginx
+# serves plain HTTP and there is nothing to follow.
+#
+# KUBEDOK_LOCAL_BASE_URL overrides all of this for the cases where loopback is
 # not the right address: nginx bound to a specific interface, a non-default
-# port, or the scripts running from inside a container on the proxy network.
+# HTTPS port behind the redirect, or the scripts running from inside a
+# container on the proxy network. It is used verbatim.
 local_base_url() {
   if [ -n "${KUBEDOK_LOCAL_BASE_URL:-}" ]; then
     printf '%s' "${KUBEDOK_LOCAL_BASE_URL%/}"
     return 0
   fi
-  printf 'http://127.0.0.1:%s' "${KUBEDOK_HTTP_PORT:-80}"
+  if [ -n "${KUBEDOK_HOST:-}" ] && [ "${KUBEDOK_HOST}" != "_" ]; then
+    printf 'http://%s:%s' "${KUBEDOK_HOST}" "${KUBEDOK_HTTP_PORT:-80}"
+  else
+    printf 'http://127.0.0.1:%s' "${KUBEDOK_HTTP_PORT:-80}"
+  fi
+}
+
+# curl for URLs from local_base_url. Takes exactly the arguments curl takes.
+local_curl() {
+  local opts=()
+  if [ -z "${KUBEDOK_LOCAL_BASE_URL:-}" ] \
+    && [ -n "${KUBEDOK_HOST:-}" ] && [ "${KUBEDOK_HOST}" != "_" ]; then
+    opts+=(--resolve "${KUBEDOK_HOST}:${KUBEDOK_HTTP_PORT:-80}:127.0.0.1"
+           --resolve "${KUBEDOK_HOST}:${KUBEDOK_HTTPS_PORT:-443}:127.0.0.1"
+           --location --max-redirs 3)
+  fi
+  curl ${opts[@]+"${opts[@]}"} "$@"
 }

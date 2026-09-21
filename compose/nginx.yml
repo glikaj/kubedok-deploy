@@ -26,8 +26,12 @@ services:
       - ${KUBEDOK_TLS_DIR:?KUBEDOK_TLS_DIR is required}/webroot:/var/www/certbot
     networks:
       - kubedok-proxy
+    # Port 80 answers 200 while serving plain HTTP and 301 once TLS is on.
+    # curl without --location treats both as success; busybox wget follows the
+    # redirect to https://127.0.0.1/ and fails to verify a certificate that is,
+    # correctly, not for 127.0.0.1 — which reported every TLS install unhealthy.
     healthcheck:
-      test: ["CMD", "wget", "-q", "-O", "/dev/null", "--spider", "http://127.0.0.1/"]
+      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://127.0.0.1/"]
       interval: 30s
       timeout: 5s
       retries: 3

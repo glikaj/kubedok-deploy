@@ -183,7 +183,7 @@ check_port "${KUBEDOK_HTTP_PORT:-80}" 'HTTP'
 [ "${KUBEDOK_TLS_ENABLED:-false}" = "true" ] && check_port "${KUBEDOK_HTTPS_PORT:-443}" 'HTTPS'
 
 BASE="$(local_base_url)"
-if health_json="$(curl -fsS --max-time 10 "${BASE}/api/health" 2>/dev/null)"; then
+if health_json="$(local_curl -fsS --max-time 10 "${BASE}/api/health" 2>/dev/null)"; then
   status="$(jq -r '.status // "?"' <<<"${health_json}")"
   db="$(jq -r '.database // "?"' <<<"${health_json}")"
   [ "${status}" = "ok" ] && pass 'API /api/health' "status=${status} database=${db}" \
@@ -192,7 +192,7 @@ else
   fail 'API /api/health' "no response from ${BASE}"
 fi
 
-if curl -fsS --max-time 10 -o /dev/null "${BASE}/" 2>/dev/null; then
+if local_curl -fsS --max-time 10 -o /dev/null "${BASE}/" 2>/dev/null; then
   pass 'Web UI' "served at ${BASE}/"
 else
   fail 'Web UI' "not served at ${BASE}/"

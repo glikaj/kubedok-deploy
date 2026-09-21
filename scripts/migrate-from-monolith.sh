@@ -251,11 +251,11 @@ log "Verifying the migrated install"
 BASE="$(local_base_url)"
 
 wait_for_http "${BASE}/api/health" 90 || { err "No response from ${BASE}/api/health"; rollback_to_monolith; }
-DB_STATUS="$(curl -fsS --max-time 10 "${BASE}/api/health" | jq -r '.database // empty')"
+DB_STATUS="$(local_curl -fsS --max-time 10 "${BASE}/api/health" | jq -r '.database // empty')"
 [ "${DB_STATUS}" = "connected" ] || { err "Database reports '${DB_STATUS}'"; rollback_to_monolith; }
 ok "  /api/health: database connected"
 
-curl -fsS --max-time 10 -o /dev/null "${BASE}/" || { err "Web UI is not served"; rollback_to_monolith; }
+local_curl -fsS --max-time 10 -o /dev/null "${BASE}/" || { err "Web UI is not served"; rollback_to_monolith; }
 ok "  web UI is served"
 
 # The row counts must survive, otherwise the dump restored into the wrong place.

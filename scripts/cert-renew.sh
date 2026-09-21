@@ -101,16 +101,24 @@ certbot_run() {
     "${CERTBOT_IMAGE}" "$@"
 }
 
-# HTTP status of a GET, or curl's own error when nothing answered at all
-# (DNS failure, refused connection, timeout). Never fails the caller.
-http_status() {
-  local url="$1"; shift
-  local errfile code
+# Outcome of fetching the probe marker: "200" only when the marker itself came
+# back; otherwise the HTTP status, a note that a 200 carried the wrong body, or
+# curl's own error when nothing answered at all (DNS failure, refused
+# connection, timeout). Never fails the caller.
+#   $1  the client: local_curl for loopback, curl for the public route
+#   $2  the URL; anything after it is passed to the client
+probe_outcome() {
+  local via="$1" url="$2"; shift 2
+  local errfile out body code
   errfile="$(mktemp)"
-  code="$(curl -sS --max-time 15 -o /dev/null -w '%{http_code}' "$@" "${url}" 2>"${errfile}")" || true
+  out="$("${via}" -sS --max-time 15 -w '\n%{http_code}' "$@" "${url}" 2>"${errfile}")" || true
+  code="${out##*$'\n'}"
+  body="${out%$'\n'*}"
   if [ -z "${code}" ] || [ "${code}" = "000" ]; then
     code="$(head -n1 "${errfile}" | sed 's/^curl: ([0-9]*) //')"
     [ -n "${code}" ] || code="no response"
+  elif [ "${code}" = "200" ] && [ "${body}" != "ok" ]; then
+    code="200 but not the marker: something other than the challenge webroot answered"
   fi
   rm -f "${errfile}"
   printf '%s' "${code}"
@@ -156,25 +164,29 @@ case "${MODE}" in
     # Two probes, so the failure names the right layer: nginx on this host
     # first, then the public route Let's Encrypt will actually take.
     local_url="$(local_base_url)${probe_path}"
-    status="$(http_status "${local_url}" -H "Host: ${KUBEDOK_HOST}")"
+    status="$(probe_outcome local_curl "${local_url}")"
     if [ "${status}" != "200" ]; then
       die "nginx on this host is not serving the ACME challenge webroot.
-    Tried: ${local_url} (Host: ${KUBEDOK_HOST}) -> ${status}
+    Tried: ${local_url} (pinned to 127.0.0.1) -> ${status}
     Expected 200 for ${probe_dir}/${probe}.
     Check that nginx is running (docker logs kubedok-nginx) and that
     ${WEBROOT} is mounted at /var/www/certbot inside the container."
     fi
     ok "nginx serves the challenge webroot"
 
+    # Let's Encrypt follows redirects, HTTPS included, and does not validate
+    # the certificate it lands on — so neither does this probe.
     public_url="http://${KUBEDOK_HOST}${probe_path}"
-    status="$(http_status "${public_url}")"
+    status="$(probe_outcome curl "${public_url}" --location --max-redirs 10 --insecure)"
     if [ "${status}" != "200" ]; then
       die "The ACME challenge path is not reachable from the internet.
     Tried: ${public_url} -> ${status}
     nginx serves it locally, so the problem is on the way in. Check that
     port 80 is open in the firewall and any cloud security group, that
     ${KUBEDOK_HOST} resolves to this server, and that no proxy or CDN in
-    front rewrites /.well-known/acme-challenge/.
+    front rewrites /.well-known/acme-challenge/. A 200 without the marker
+    means a redirect landed somewhere that does not serve the challenge
+    webroot — usually an edge forcing HTTPS in front of an older nginx.
     Let's Encrypt requires port 80: https://letsencrypt.org/docs/allow-port-80/"
     fi
     rm -f "${probe_dir:?}/${probe}"

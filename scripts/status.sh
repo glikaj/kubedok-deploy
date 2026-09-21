@@ -61,13 +61,13 @@ else
 fi
 
 BASE="$(local_base_url)"
-if health_json="$(curl -fsS --max-time 5 "${BASE}/api/health" 2>/dev/null)"; then
+if health_json="$(local_curl -fsS --max-time 5 "${BASE}/api/health" 2>/dev/null)"; then
   printf '  %-18s %s (db: %s)\n' 'API' "$(jq -r .status <<<"${health_json}")" "$(jq -r .database <<<"${health_json}")"
 else
   printf '  %-18s %sunreachable at %s%s\n' 'API' "${_c_red}" "${BASE}" "${_c_reset}"
 fi
 
-if version_json="$(curl -fsS --max-time 5 "${BASE}/api/version" 2>/dev/null)"; then
+if version_json="$(local_curl -fsS --max-time 5 "${BASE}/api/version" 2>/dev/null)"; then
   printf '  %-18s %s\n' 'Reported release' "$(jq -r .release <<<"${version_json}")"
 fi
 

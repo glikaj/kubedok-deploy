@@ -112,7 +112,7 @@ report_outdated_agents() {
   local min_agent="$1"
   local base; base="$(local_base_url)"
   local versions
-  versions="$(curl -fsS --max-time 10 "${base}/api/health" >/dev/null 2>&1 && echo ok || echo unreachable)"
+  versions="$(local_curl -fsS --max-time 10 "${base}/api/health" >/dev/null 2>&1 && echo ok || echo unreachable)"
   [ "${versions}" = "ok" ] || return 0
   warn "After this update, agents older than ${min_agent} are unsupported."
   warn "Update them with: ${KUBEDOK_CURRENT_LINK}/scripts/agent-update.sh"
@@ -218,20 +218,20 @@ if ! wait_for_http "${BASE}/api/health" 60; then
 fi
 ok "  /api/health responds"
 
-REPORTED="$(curl -fsS --max-time 10 "${BASE}/api/version" | jq -r '.release // empty' 2>/dev/null || true)"
+REPORTED="$(local_curl -fsS --max-time 10 "${BASE}/api/version" | jq -r '.release // empty' 2>/dev/null || true)"
 if [ "${REPORTED}" != "${NEW_VERSION}" ]; then
   err "Smoke test failed: /api/version reports '${REPORTED}', expected '${NEW_VERSION}'"
   restore_previous
 fi
 ok "  /api/version reports ${NEW_VERSION}"
 
-if ! curl -fsS --max-time 10 -o /dev/null "${BASE}/"; then
+if ! local_curl -fsS --max-time 10 -o /dev/null "${BASE}/"; then
   err "Smoke test failed: the web UI is not being served at ${BASE}/"
   restore_previous
 fi
 ok "  web UI is served"
 
-DB_STATUS="$(curl -fsS --max-time 10 "${BASE}/api/health" | jq -r '.database // empty' 2>/dev/null || true)"
+DB_STATUS="$(local_curl -fsS --max-time 10 "${BASE}/api/health" | jq -r '.database // empty' 2>/dev/null || true)"
 if [ "${DB_STATUS}" != "connected" ]; then
   err "Smoke test failed: database reports '${DB_STATUS}'"
   restore_previous

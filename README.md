@@ -171,7 +171,12 @@ incompatible, restore a backup instead.
 
 **No outbound calls from a request path.** The application never asks Docker
 Hub or GitHub about updates. `update.sh` owns update discovery, so an
-air-gapped control plane still works.
+air-gapped control plane still works. The one exception is opt-in: ordering a
+certificate from Let's Encrypt or Google Trust Services in Settings talks to
+that CA over HTTPS, when an operator asks and when its renewals are due. The
+server needs outbound HTTPS for that, and nothing more — no extra containers,
+ports or networks. Without it, everything else works and ordering says it
+cannot reach the CA.
 
 ## Releases
 
